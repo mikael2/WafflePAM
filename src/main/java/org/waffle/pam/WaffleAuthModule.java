@@ -26,8 +26,11 @@ import waffle.servlet.WindowsPrincipal;
 import waffle.servlet.spi.SecurityFilterProvider;
 import waffle.servlet.spi.SecurityFilterProviderCollection;
 import waffle.util.AuthorizationHeader;
+import waffle.util.Base64;
+import waffle.util.NtlmServletRequest;
 import waffle.windows.auth.IWindowsAuthProvider;
 import waffle.windows.auth.IWindowsIdentity;
+import waffle.windows.auth.IWindowsSecurityContext;
 import waffle.windows.auth.PrincipalFormat;
 import waffle.windows.auth.impl.WindowsAuthProviderImpl;
 
@@ -40,11 +43,11 @@ public class WaffleAuthModule extends AbstractHTTPServerAuthModule {
     private static final String PRINCIPAL_SESSION_KEY = WaffleAuthModule.class.getName() + ".PRINCIPAL";
 
 
-    private PrincipalFormat principalFormat = PrincipalFormat.fqn;
-    private PrincipalFormat roleFormat = PrincipalFormat.fqn;
-    private SecurityFilterProviderCollection providers = null;
-    private IWindowsAuthProvider auth = new WindowsAuthProviderImpl();
-    private boolean allowGuestLogin = true;
+    private static PrincipalFormat principalFormat = PrincipalFormat.fqn;
+    private static PrincipalFormat roleFormat = PrincipalFormat.fqn;
+    private static SecurityFilterProviderCollection providers = null;
+    private static IWindowsAuthProvider auth = new WindowsAuthProviderImpl();
+    private static boolean allowGuestLogin = true;
 
     static final Logger log = Logger.getLogger(WaffleAuthModule.class.getName());
 
@@ -76,7 +79,7 @@ public class WaffleAuthModule extends AbstractHTTPServerAuthModule {
 
             // create default providers if none specified
             if (providers == null) {
-                log.severe("initializing default secuirty filter providers");
+                log.warning("initializing default security filter providers");
                 providers = new SecurityFilterProviderCollection(auth);
             }
 
@@ -106,19 +109,17 @@ public class WaffleAuthModule extends AbstractHTTPServerAuthModule {
 
     @Override
     public AuthStatus validateRequest(MessageInfo messageInfo, Subject client, Subject server) throws AuthException {
-        AuthStatus retVal = AuthStatus.FAILURE;
-
         HttpServletRequest request = (HttpServletRequest) messageInfo.getRequestMessage();
         HttpServletResponse response = (HttpServletResponse) messageInfo.getResponseMessage();
-        HttpSession session = request.getSession(false);
 
         log.log(Level.INFO, "{0} {1}, contentlength: {2}", new Object[]{request.getMethod(), request.getRequestURI(), request.getContentLength()});
 
-        GroupPrincipal principal = null;
+        Principal principal = getPrincipal(request);
         if (requestPolicy.isMandatory() == false || principal != null) {
-            // Unprotected page, reinstall principal if found in session
+            // Unprotected page, reinstall retVal if found in session
             try {
                 setAuthenticationResult(principal, client, messageInfo);
+                return AuthStatus.SUCCESS;
             } catch (Exception ex) {
                 log.log(Level.SEVERE, ex.getMessage(), ex);
                 AuthException ae = new AuthException();
@@ -127,50 +128,41 @@ public class WaffleAuthModule extends AbstractHTTPServerAuthModule {
             }
         }
 
-        if (doFilterPrincipal(request)) {
-            // previously authenticated user
-            retVal = AuthStatus.SUCCESS;
-            return retVal;
-        }
-
         AuthorizationHeader authorizationHeader = new AuthorizationHeader(request);
-        System.out.println("authorizationHeader: " + request.getHeader("authorization"));
-        //log.log(Level.FINE,"AuthorizationHeader: header {0} token {1}",new Object[]{authorizationHeader.getHeader(), authorizationHeader.getToken()});
-
+        //System.out.println("authorizationHeader: " + request.getHeader("authorization"));
+ 
         // authenticate user
         if (!authorizationHeader.isNull()) {
 
             // log the user in using the token
             IWindowsIdentity windowsIdentity = null;
             try {
+                
                 windowsIdentity = providers.doFilter(request, response);
                 if (windowsIdentity == null) {
-                    if(authorizationHeader.getToken() != null) {
-                        System.out.println("Tokens: " + authorizationHeader.getToken());
-                        retVal = AuthStatus.SEND_CONTINUE;
-                        return retVal;
-                    } else {
-                        log.log(Level.WARNING, "error getting windows user in user:");
-                        retVal = AuthStatus.FAILURE;
-                        return retVal;
-                    }
+                    //System.out.println("Continue Tokens: " + authorizationHeader.getToken());
+                    return AuthStatus.SEND_CONTINUE;
                 }
+
             } catch (Exception e) {
                 log.log(Level.WARNING, "error loggin user: {0}", e.getMessage());
+                e.printStackTrace();
                 sendUnauthorized(response, true);
-                retVal = AuthStatus.FAILURE;
-                return retVal;
+                return AuthStatus.FAILURE;
             }
+
+            System.out.println("Beyond:");
 
             try {
                 if (!allowGuestLogin && windowsIdentity.isGuest()) {
                     log.log(Level.WARNING, "guest login disabled: {0}", windowsIdentity.getFqn());
                     sendUnauthorized(response, true);
-                    return retVal;
+                    return AuthStatus.FAILURE;
                 }
 
                 log.log(Level.FINE, "logged in user: {0} ({1})", new Object[]{windowsIdentity.getFqn(), windowsIdentity.getSidString()});
 
+                HttpSession session = request.getSession(true);
                 if (session == null) {
                     throw new AuthException("Expected HttpSession");
                 }
@@ -192,20 +184,16 @@ public class WaffleAuthModule extends AbstractHTTPServerAuthModule {
 
                 //NegotiateRequestWrapper requestWrapper = new NegotiateRequestWrapper(request, windowsPrincipal);
                 //chain.doFilter(requestWrapper, response);
-                retVal = AuthStatus.SUCCESS;
+                return AuthStatus.SUCCESS;
             } finally {
                 windowsIdentity.dispose();
             }
-
-            return retVal;
         }
 
         log.info("authorization required");
-        retVal = sendUnauthorized(response, false);
-
-        return retVal;
+        sendUnauthorized(response, false);
+        return AuthStatus.FAILURE;
     }
-
 
 
     /**
@@ -221,43 +209,38 @@ public class WaffleAuthModule extends AbstractHTTPServerAuthModule {
      * @throws ServletException
      * @throws IOException
      */
-    private boolean doFilterPrincipal(HttpServletRequest request) {
-        Principal principal = request.getUserPrincipal();
-        if (principal == null) {
+    private Principal getPrincipal(HttpServletRequest request) {
+        Principal retVal = request.getUserPrincipal();
+        if (retVal == null) {
             HttpSession session = request.getSession(false);
             if (session != null) {
-                principal = (Principal) session.getAttribute(PRINCIPAL_SESSION_KEY);
+                retVal = (Principal) session.getAttribute(PRINCIPAL_SESSION_KEY);
             }
         }
 
-        if (principal == null) {
-            // no principal in this request
-            return false;
-        }
-
         if (providers.isPrincipalException(request)) {
-            // the providers signal to authenticate despite an existing principal, eg. NTLM post
-            return false;
+            // the providers signal to authenticate despite an existing retVal, eg. NTLM post
+            return null;
         }
 
         // user already authenticated
-        if (principal instanceof WindowsPrincipal) {
-            log.log(Level.SEVERE, "previously authenticated Windows user: {0}", principal.getName());
-            /*WindowsPrincipal windowsPrincipal = (WindowsPrincipal) principal;
+        if (retVal instanceof WindowsPrincipal) {
+            log.log(Level.SEVERE, "previously authenticated Windows user: {0}", retVal.getName());
+            /*WindowsPrincipal windowsPrincipal = (WindowsPrincipal) retVal;
             NegotiateRequestWrapper requestWrapper = new NegotiateRequestWrapper(request, windowsPrincipal);
             chain.doFilter(requestWrapper, response);*/
-        } else {
-            log.log(Level.INFO, "previously authenticated user: {0}", principal.getName());
+        } else if(retVal != null) {
+            log.log(Level.INFO, "previously authenticated user: {0}", retVal.getName());
             //chain.doFilter(request, response);
         }
 
-        return true;
+        return retVal;
     }
 
 
  
     /**
-     * Set the principal format.
+     * Set the retVal format.
      * @param format
      *  Principal format.
      */
@@ -275,7 +258,7 @@ public class WaffleAuthModule extends AbstractHTTPServerAuthModule {
     }
 
     /**
-     * Set the principal format.
+     * Set the retVal format.
      * @param format
      *  Role format.
      */
@@ -352,14 +335,15 @@ public class WaffleAuthModule extends AbstractHTTPServerAuthModule {
         return providers;
     }
 
-    private void setAuthenticationResult(GroupPrincipal principal, Subject client, MessageInfo messageInfo)
+    private void setAuthenticationResult(Principal principal, Subject client, MessageInfo messageInfo)
             throws IOException, UnsupportedCallbackException {
         if(principal == null) {
             handler.handle(new Callback[] {new CallerPrincipalCallback(client, principal)});
             messageInfo.getMap().put(AUTH_TYPE_INFO_KEY, MODULENAME);
         } else {
             CallerPrincipalCallback callerPrincipalCallback = new CallerPrincipalCallback(client, principal);
-            GroupPrincipalCallback groupPrincipalCallback = new GroupPrincipalCallback(client,principal.getGroups());
+            String[] groups = principal instanceof GroupPrincipal ? ((GroupPrincipal)principal).getGroups() : new String[] {};
+            GroupPrincipalCallback groupPrincipalCallback = new GroupPrincipalCallback(client,groups);
             handler.handle(new Callback[]{callerPrincipalCallback, groupPrincipalCallback});
         }
     }
