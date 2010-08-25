@@ -5,7 +5,7 @@
     <groupId>org.waffle</groupId>
     <artifactId>waffle-pam</artifactId>
     <packaging>jar</packaging>
-    <version>1.0-SNAPSHOT</version>
+    <version>1.3-SNAPSHOT</version>
     <name>WafflePAM</name>
     <url>http://maven.apache.org</url>
     <dependencies>
@@ -19,6 +19,16 @@
             <groupId>ant</groupId>
             <artifactId>ant-commons-logging</artifactId>
             <version>1.6.5</version>
+        </dependency>
+        <dependency>
+            <groupId>net.java.dev.jna</groupId>
+            <artifactId>jna</artifactId>
+            <version>3.2.7</version>
+        </dependency>
+        <dependency>
+            <groupId>net.java.dev.jna</groupId>
+            <artifactId>platform</artifactId>
+            <version>3.2.7</version>
         </dependency>
         <dependency>
             <groupId>javax</groupId>
