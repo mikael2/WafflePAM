@@ -52,6 +52,13 @@ public class GroupPrincipal extends WindowsPrincipal implements Serializable {
     }
 
     @Override
+    public String getName() {
+        return getSimpleName();
+    }
+
+
+
+    @Override
     public String toString() {
         return getName();
     }
