@@ -1,46 +1,54 @@
 package org.waffle.pam;
 
-import java.security.Principal;
+import java.io.Serializable;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
+import waffle.servlet.WindowsPrincipal;
+import waffle.windows.auth.IWindowsIdentity;
+import waffle.windows.auth.PrincipalFormat;
 
 /**
  *
  * @author mikael
  */
-public class GroupPrincipal implements Principal {
-    String name;
-    String username;
+public class GroupPrincipal extends WindowsPrincipal implements Serializable {
+    Set<String> roles;
 
-    Set<String> groups;
-
-    public GroupPrincipal(String name, String username) {
-        this.name = name;
-        this.username = username;
-        this.groups = new HashSet<String>();
+    protected GroupPrincipal() {
+        super(null,null,null);
     }
 
 
-    public String getName() {
-        return name;
-    }
-
-    public String getUsername() {
-        return username;
+    public GroupPrincipal(IWindowsIdentity identity, PrincipalFormat principalFormat, PrincipalFormat roleFormat) {
+        super(identity,principalFormat,roleFormat);
+        roles = new HashSet<String>();
     }
 
 
-    public void addGroups(String... groups) {
-        Collections.addAll(this.groups,groups);
+    public void addRoles(String... roles) {
+        Collections.addAll(this.roles,roles);
     }
 
-    public String[] getGroups() {
-        return groups.toArray(new String[groups.size()]);
+
+    public boolean hasRole(String role) {
+        return roles.contains(role) || super.getRolesString().contains(role);
     }
 
-    public boolean hasGroup(String group) {
-        return groups.contains(group);
+    public String[] getRoles() {
+        Set<String> retVal = new HashSet<String>();
+
+        retVal.addAll(roles);
+        String roleStr = super.getRolesString();
+        Collections.addAll(retVal, roleStr.split(", "));
+
+        return retVal.toArray(new String[retVal.size()]);
+    }
+
+    public String getSimpleName() {
+        String retVal = getName();
+        int index = retVal.indexOf('\\');
+        return index == -1 ? retVal : retVal.substring(index+1);
     }
 
     @Override

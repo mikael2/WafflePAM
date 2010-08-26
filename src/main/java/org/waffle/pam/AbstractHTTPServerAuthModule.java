@@ -47,6 +47,7 @@ public abstract class AbstractHTTPServerAuthModule implements ServerAuthModule {
      * throws AuthException If an error occurs during the Subject
      * processing.
      */
+    @Override
     public void cleanSubject(MessageInfo messageInfo, Subject subject) throws AuthException {
         if (subject != null) {
             subject.getPrincipals().clear();
@@ -60,11 +61,13 @@ public abstract class AbstractHTTPServerAuthModule implements ServerAuthModule {
      * @return An array of Class objects, with at least one element
      * defining a message type supported by the module.
      */
+    @Override
     public Class[] getSupportedMessageTypes() {
         return supportedMessageTypes;
     }
 
 
+    @Override
     public void initialize(MessagePolicy requestPolicy, MessagePolicy responsePolicy, CallbackHandler handler, Map options) throws AuthException {
         this.requestPolicy = requestPolicy;
         this.responsePolicy = responsePolicy;
@@ -130,7 +133,6 @@ public abstract class AbstractHTTPServerAuthModule implements ServerAuthModule {
      * establishing a failure response message (in messageInfo).
      */
     public AuthStatus secureResponse(MessageInfo messageInfo, Subject serviceSubject) throws AuthException {
-        System.out.println("AbstractHTTPServerAuthModule: " + messageInfo + " serviceSubject: " + serviceSubject);
         return AuthStatus.SEND_SUCCESS;
     }
 
