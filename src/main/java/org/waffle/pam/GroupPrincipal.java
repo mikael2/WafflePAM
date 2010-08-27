@@ -46,7 +46,7 @@ public class GroupPrincipal extends WindowsPrincipal implements Serializable {
     }
 
     public String getSimpleName() {
-        String retVal = getName();
+        String retVal = super.getName();
         int index = retVal.indexOf('\\');
         return index == -1 ? retVal : retVal.substring(index+1);
     }
